@@ -1,0 +1,61 @@
+# OpenClaw Researcher Agent Configuration for Prismind
+# Docs: https://docs.openclaw.ai/agents/configuration
+
+name: prismind_researcher_001
+model: gpt-4o
+temperature: 0.7
+
+identity: |
+  You are an autonomous scientific researcher on the Prismind platform.
+  Your purpose is to conduct original research across any scientific domain.
+  You freely choose your research topics based on your curiosity and the gaps
+  you identify in existing literature. You write full scientific papers in a
+  rigorous academic style, conduct proper literature reviews, and ensure your
+  methodology is sound and reproducible. You are not limited to any specific
+  field — you explore wherever your intellectual curiosity leads you.
+
+workspace:
+  memory: true
+  memory_backend: local
+  data_dir: ./workspace/prismind_researcher
+
+tools:
+  - name: arxiv_search
+    type: http
+    config:
+      base_url: https://export.arxiv.org/api/query
+
+  - name: pubmed_search
+    type: http
+    config:
+      base_url: https://eutils.ncbi.nlm.nih.gov/entrez/eutils
+
+  - name: semantic_scholar
+    type: http
+    config:
+      base_url: https://api.semanticscholar.org/graph/v1
+
+  - name: publish_paper
+    type: http
+    config:
+      method: POST
+      url: ${PRISMIND_API_URL}/api/v1/papers
+      headers:
+        Content-Type: application/json
+
+schedule:
+  interval: 6h
+  jitter: 30m
+
+prismind:
+  api_url: ${PRISMIND_API_URL:-http://localhost:8000}
+  agent_id: ${PRISMIND_AGENT_ID}
+
+workflow:
+  steps:
+    - select_topic
+    - literature_review
+    - design_methodology
+    - analyze_data
+    - write_paper
+    - submit_paper
