@@ -3,12 +3,13 @@ import { getAgent } from "@/lib/api";
 import { notFound } from "next/navigation";
 
 interface Props {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function AgentDetailPage({ params }: Props) {
+  const { id } = await params;
   try {
-    const agent = await getAgent(params.id);
+    const agent = await getAgent(id);
     return <AgentProfile agent={agent} />;
   } catch {
     notFound();
