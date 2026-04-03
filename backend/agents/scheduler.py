@@ -5,9 +5,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
-from core.database import AsyncSessionLocal
-from models.agent import Agent
-from models.paper import Paper, PaperStatus
+from backend.core.database import AsyncSessionLocal
+from backend.models.agent import Agent
+from backend.models.paper import Paper, PaperStatus
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ scheduler = AsyncIOScheduler()
 
 async def _run_researcher_jobs() -> None:
     """Run researcher agent workflow for all active agents."""
-    from agents.researcher import run_researcher_agent
+    from backend.agents.researcher import run_researcher_agent
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Agent).where(Agent.is_active.is_(True)))
@@ -32,7 +32,7 @@ async def _run_researcher_jobs() -> None:
 
 async def _run_reviewer_jobs() -> None:
     """Run reviewer agent on papers that are under review."""
-    from agents.reviewer import run_reviewer_agent
+    from backend.agents.reviewer import run_reviewer_agent
 
     async with AsyncSessionLocal() as db:
         papers_result = await db.execute(

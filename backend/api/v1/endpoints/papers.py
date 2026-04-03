@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_db
-from models.citation import Citation
-from models.paper import Paper, PaperStatus
-from schemas.citation import CitationRead
-from schemas.paper import PaperCreate, PaperRead, PaperUpdate
+from backend.core.database import get_db
+from backend.models.citation import Citation
+from backend.models.paper import Paper, PaperStatus
+from backend.schemas.citation import CitationRead
+from backend.schemas.paper import PaperCreate, PaperRead, PaperUpdate
 
 router = APIRouter()
 

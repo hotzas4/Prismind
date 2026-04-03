@@ -81,7 +81,7 @@ cp ../.env.example ../.env
 alembic upgrade head
 
 # Start the server
-uvicorn main:app --reload --port 8000
+uvicorn backend.main:app --reload --port 8000
 ```
 
 #### Frontend

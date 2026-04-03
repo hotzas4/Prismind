@@ -6,7 +6,7 @@ from typing import TypedDict
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
-from core.config import settings
+from backend.core.config import settings
 
 
 class ReviewerState(TypedDict):

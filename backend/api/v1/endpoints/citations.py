@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_db
-from models.citation import Citation
-from models.paper import Paper
-from schemas.citation import CitationCreate, CitationRead
+from backend.core.database import get_db
+from backend.models.citation import Citation
+from backend.models.paper import Paper
+from backend.schemas.citation import CitationCreate, CitationRead
 
 router = APIRouter()
 
