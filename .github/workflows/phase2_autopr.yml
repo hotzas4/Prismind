@@ -14,19 +14,439 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create Phase 2 branch
+      - name: Configure git + checkout phase2 branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B phase-2/backend-implementation
 
-      - name: Apply Phase 2 changes (placeholder)
+      - name: Generate Phase 2 backend (FastAPI + SQLAlchemy async + Alembic + Auth)
         run: |
-          mkdir -p backend
-          echo "Phase 2 bootstrap" > backend/PHASE2.md
+          set -euo pipefail
 
+          mkdir -p backend/app backend/core backend/models backend/schemas backend/api backend/api/routers alembic/versions
+
+          cat > backend/requirements.txt << 'REQ'
+          fastapi==0.115.12
+          uvicorn[standard]==0.34.0
+          sqlalchemy==2.0.39
+          asyncpg==0.30.0
+          alembic==1.15.1
+          pydantic==2.11.2
+          pydantic-settings==2.8.1
+          python-jose[cryptography]==3.3.0
+          passlib[bcrypt]==1.7.4
+          python-multipart==0.0.20
+          REQ
+
+          cat > backend/app/main.py << 'PY'
+          from fastapi import FastAPI
+          from backend.api.router import api_router
+
+          app = FastAPI(title="Prismind API", version="0.2.0")
+          app.include_router(api_router)
+          PY
+
+          cat > backend/api/router.py << 'PY'
+          from fastapi import APIRouter
+          from backend.api.routers import health, auth, users
+
+          api_router = APIRouter(prefix="/api")
+          api_router.include_router(health.router, tags=["health"])
+          api_router.include_router(auth.router, tags=["auth"])
+          api_router.include_router(users.router, tags=["users"])
+          PY
+
+          cat > backend/api/routers/health.py << 'PY'
+          from fastapi import APIRouter
+
+          router = APIRouter()
+
+          @router.get("/health")
+          async def health():
+              return {"status": "ok"}
+          PY
+
+          cat > backend/core/config.py << 'PY'
+          from typing import Optional
+          from pydantic_settings import BaseSettings
+
+
+          class Settings(BaseSettings):
+              DATABASE_URL: str = "postgresql+asyncpg://prismind:prismind@localhost:5432/prismind"
+              SECRET_KEY: str = "changeme-in-production-use-strong-random-key"
+              ALGORITHM: str = "HS256"
+              ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+              ENVIRONMENT: str = "development"
+              OPENAI_API_KEY: Optional[str] = None
+
+              model_config = {"env_file": ".env"}
+
+
+          settings = Settings()
+          PY
+
+          cat > backend/core/database.py << 'PY'
+          from collections.abc import AsyncGenerator
+
+          from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+          from sqlalchemy.orm import DeclarativeBase
+
+          from backend.core.config import settings
+
+
+          class Base(DeclarativeBase):
+              pass
+
+
+          engine = create_async_engine(
+              settings.DATABASE_URL,
+              echo=settings.ENVIRONMENT == "development",
+              pool_pre_ping=True,
+          )
+
+          AsyncSessionLocal = async_sessionmaker(
+              bind=engine,
+              class_=AsyncSession,
+              expire_on_commit=False,
+          )
+
+
+          async def get_db() -> AsyncGenerator[AsyncSession, None]:
+              async with AsyncSessionLocal() as session:
+                  try:
+                      yield session
+                      await session.commit()
+                  except Exception:
+                      await session.rollback()
+                      raise
+          PY
+
+          cat > backend/core/security.py << 'PY'
+          from datetime import datetime, timedelta, timezone
+          from typing import Any, Optional
+
+          from jose import JWTError, jwt
+          from passlib.context import CryptContext
+
+          from backend.core.config import settings
+
+          pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+          def verify_password(plain_password: str, hashed_password: str) -> bool:
+              return pwd_context.verify(plain_password, hashed_password)
+
+
+          def get_password_hash(password: str) -> str:
+              return pwd_context.hash(password)
+
+
+          def create_access_token(data: dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+              to_encode = data.copy()
+              if expires_delta:
+                  expire = datetime.now(timezone.utc) + expires_delta
+              else:
+                  expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+              to_encode.update({"exp": expire})
+              return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+          def decode_access_token(token: str) -> Optional[dict[str, Any]]:
+              try:
+                  return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+              except JWTError:
+                  return None
+          PY
+
+          cat > backend/models/user.py << 'PY'
+          from sqlalchemy import String
+          from sqlalchemy.orm import Mapped, mapped_column
+
+          from backend.core.database import Base
+
+
+          class User(Base):
+              __tablename__ = "users"
+
+              id: Mapped[int] = mapped_column(primary_key=True)
+              email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+              hashed_password: Mapped[str] = mapped_column(String(255))
+          PY
+
+          cat > backend/schemas/auth.py << 'PY'
+          from pydantic import BaseModel, EmailStr
+
+
+          class Token(BaseModel):
+              access_token: str
+              token_type: str = "bearer"
+
+
+          class LoginRequest(BaseModel):
+              email: EmailStr
+              password: str
+          PY
+
+          cat > backend/schemas/user.py << 'PY'
+          from pydantic import BaseModel, EmailStr
+
+
+          class UserCreate(BaseModel):
+              email: EmailStr
+              password: str
+
+
+          class UserOut(BaseModel):
+              id: int
+              email: EmailStr
+
+              model_config = {"from_attributes": True}
+          PY
+
+          cat > backend/api/deps.py << 'PY'
+          from fastapi import Depends, HTTPException, status
+          from fastapi.security import OAuth2PasswordBearer
+          from sqlalchemy import select
+          from sqlalchemy.ext.asyncio import AsyncSession
+
+          from backend.core.database import get_db
+          from backend.core.security import decode_access_token
+          from backend.models.user import User
+
+          oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+          async def get_current_user(
+              token: str = Depends(oauth2_scheme),
+              db: AsyncSession = Depends(get_db),
+          ) -> User:
+              payload = decode_access_token(token)
+              if not payload or "sub" not in payload:
+                  raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+              email = payload["sub"]
+
+              result = await db.execute(select(User).where(User.email == email))
+              user = result.scalar_one_or_none()
+              if not user:
+                  raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+              return user
+          PY
+
+          cat > backend/api/routers/auth.py << 'PY'
+          from fastapi import APIRouter, Depends, HTTPException, status
+          from sqlalchemy import select
+          from sqlalchemy.ext.asyncio import AsyncSession
+
+          from backend.core.database import get_db
+          from backend.core.security import create_access_token, get_password_hash, verify_password
+          from backend.models.user import User
+          from backend.schemas.auth import LoginRequest, Token
+          from backend.schemas.user import UserCreate, UserOut
+
+          router = APIRouter(prefix="/auth")
+
+
+          @router.post("/register", response_model=UserOut, status_code=201)
+          async def register(payload: UserCreate, db: AsyncSession = Depends(get_db)):
+              result = await db.execute(select(User).where(User.email == payload.email))
+              if result.scalar_one_or_none():
+                  raise HTTPException(status_code=400, detail="Email already registered")
+
+              user = User(email=payload.email, hashed_password=get_password_hash(payload.password))
+              db.add(user)
+              await db.flush()
+              await db.refresh(user)
+              return user
+
+
+          @router.post("/login", response_model=Token)
+          async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+              result = await db.execute(select(User).where(User.email == payload.email))
+              user = result.scalar_one_or_none()
+              if not user or not verify_password(payload.password, user.hashed_password):
+                  raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+              token = create_access_token({"sub": user.email})
+              return Token(access_token=token)
+          PY
+
+          cat > backend/api/routers/users.py << 'PY'
+          from fastapi import APIRouter, Depends
+
+          from backend.api.deps import get_current_user
+          from backend.schemas.user import UserOut
+
+          router = APIRouter(prefix="/users")
+
+
+          @router.get("/me", response_model=UserOut)
+          async def me(current_user=Depends(get_current_user)):
+              return current_user
+          PY
+
+          cat > alembic.ini << 'INI'
+          [alembic]
+          script_location = alembic
+          sqlalchemy.url = postgresql+asyncpg://prismind:prismind@localhost:5432/prismind
+
+          [loggers]
+          keys = root,sqlalchemy,alembic
+
+          [handlers]
+          keys = console
+
+          [formatters]
+          keys = generic
+
+          [logger_root]
+          level = INFO
+          handlers = console
+          qualname =
+
+          [logger_sqlalchemy]
+          level = WARN
+          handlers =
+          qualname = sqlalchemy.engine
+
+          [logger_alembic]
+          level = INFO
+          handlers =
+          qualname = alembic
+
+          [handler_console]
+          class = StreamHandler
+          args = (sys.stderr,)
+          level = NOTSET
+          formatter = generic
+
+          [formatter_generic]
+          format = %(levelname)-5.5s [%(name)s] %(message)s
+          datefmt = %H:%M:%S
+          INI
+
+          cat > alembic/env.py << 'PY'
+          from logging.config import fileConfig
+          from alembic import context
+          from sqlalchemy import pool
+          from sqlalchemy.engine import Connection
+          from sqlalchemy.ext.asyncio import async_engine_from_config
+
+          from backend.core.database import Base
+          from backend.models.user import User  # noqa: F401
+
+          config = context.config
+          if config.config_file_name is not None:
+              fileConfig(config.config_file_name)
+
+          target_metadata = Base.metadata
+
+
+          def run_migrations_offline() -> None:
+              url = config.get_main_option("sqlalchemy.url")
+              context.configure(
+                  url=url,
+                  target_metadata=target_metadata,
+                  literal_binds=True,
+                  dialect_opts={"paramstyle": "named"},
+              )
+              with context.begin_transaction():
+                  context.run_migrations()
+
+
+          def do_run_migrations(connection: Connection) -> None:
+              context.configure(connection=connection, target_metadata=target_metadata)
+              with context.begin_transaction():
+                  context.run_migrations()
+
+
+          async def run_migrations_online() -> None:
+              connectable = async_engine_from_config(
+                  config.get_section(config.config_ini_section) or {},
+                  prefix="sqlalchemy.",
+                  poolclass=pool.NullPool,
+              )
+
+              async with connectable.connect() as connection:
+                  await connection.run_sync(do_run_migrations)
+
+              await connectable.dispose()
+
+
+          if context.is_offline_mode():
+              run_migrations_offline()
+          else:
+              import asyncio
+              asyncio.run(run_migrations_online())
+          PY
+
+          cat > alembic/script.py.mako << 'MAKO'
+          """${message}
+
+          Revision ID: ${up_revision}
+          Revises: ${down_revision | comma,n}
+          Create Date: ${create_date}
+
+          """
+          from typing import Sequence, Union
+
+          from alembic import op
+          import sqlalchemy as sa
+
+
+          revision: str = ${repr(up_revision)}
+          down_revision: Union[str, None] = ${repr(down_revision)}
+          branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
+          depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
+
+
+          def upgrade() -> None:
+              ${upgrades if upgrades else "pass"}
+
+
+          def downgrade() -> None:
+              ${downgrades if downgrades else "pass"}
+          MAKO
+
+          cat > alembic/versions/0001_create_users.py << 'PY'
+          """create users table
+
+          Revision ID: 0001
+          Revises:
+          Create Date: 2026-04-03
+          """
+          from alembic import op
+          import sqlalchemy as sa
+
+          revision = "0001"
+          down_revision = None
+          branch_labels = None
+          depends_on = None
+
+
+          def upgrade() -> None:
+              op.create_table(
+                  "users",
+                  sa.Column("id", sa.Integer(), primary_key=True),
+                  sa.Column("email", sa.String(length=255), nullable=False),
+                  sa.Column("hashed_password", sa.String(length=255), nullable=False),
+              )
+              op.create_index("ix_users_email", "users", ["email"], unique=True)
+
+
+          def downgrade() -> None:
+              op.drop_index("ix_users_email", table_name="users")
+              op.drop_table("users")
+          PY
+
+          cat > alembic/README << 'TXT'
+          Alembic migrations for Prismind.
+          TXT
+
+          echo "Generated Phase 2 backend."
+      
       - name: Commit & push
         run: |
           git add -A
-          git commit -m "Phase 2: bootstrap" || echo "No changes to commit"
+          git commit -m "Phase 2: implement FastAPI backend (auth, db, alembic)" || echo "No changes to commit"
           git push -u origin phase-2/backend-implementation --force
