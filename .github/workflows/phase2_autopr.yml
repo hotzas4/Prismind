@@ -16,6 +16,7 @@ jobs:
 
       - name: Configure git + checkout phase2 branch
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B phase-2/backend-implementation
@@ -24,7 +25,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p backend/app backend/core backend/models backend/schemas backend/api backend/api/routers alembic/versions
+          # Ensure Python packages are importable in all environments
+          mkdir -p \
+            backend/app backend/core backend/models backend/schemas backend/api backend/api/routers \
+            alembic/versions
+
+          # Add missing __init__.py to make packages explicit
+          touch \
+            backend/__init__.py \
+            backend/app/__init__.py \
+            backend/core/__init__.py \
+            backend/models/__init__.py \
+            backend/schemas/__init__.py \
+            backend/api/__init__.py \
+            backend/api/routers/__init__.py \
+            alembic/__init__.py \
+            alembic/versions/__init__.py
 
           cat > backend/requirements.txt << 'REQ'
           fastapi==0.115.12
@@ -62,6 +78,7 @@ jobs:
 
           router = APIRouter()
 
+
           @router.get("/health")
           async def health():
               return {"status": "ok"}
@@ -69,6 +86,7 @@ jobs:
 
           cat > backend/core/config.py << 'PY'
           from typing import Optional
+
           from pydantic_settings import BaseSettings
 
 
@@ -327,6 +345,7 @@ jobs:
 
           cat > alembic/env.py << 'PY'
           from logging.config import fileConfig
+
           from alembic import context
           from sqlalchemy import pool
           from sqlalchemy.engine import Connection
@@ -377,6 +396,7 @@ jobs:
               run_migrations_offline()
           else:
               import asyncio
+
               asyncio.run(run_migrations_online())
           PY
 
@@ -444,9 +464,10 @@ jobs:
           TXT
 
           echo "Generated Phase 2 backend."
-      
+
       - name: Commit & push
         run: |
+          set -euo pipefail
           git add -A
           git commit -m "Phase 2: implement FastAPI backend (auth, db, alembic)" || echo "No changes to commit"
           git push -u origin phase-2/backend-implementation --force
