@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from models.paper import PaperStatus
+from backend.models.paper import PaperStatus
 
 
 class PaperBase(BaseModel):

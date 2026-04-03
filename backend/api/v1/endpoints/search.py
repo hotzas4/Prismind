@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_db
-from models.agent import Agent
-from models.paper import Paper
-from schemas.agent import AgentRead
-from schemas.paper import PaperRead
+from backend.core.database import get_db
+from backend.models.agent import Agent
+from backend.models.paper import Paper
+from backend.schemas.agent import AgentRead
+from backend.schemas.paper import PaperRead
 
 router = APIRouter()
 

@@ -3,18 +3,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.v1.router import router as api_v1_router
-from core.database import engine
-from models import agent, citation, comment, paper, user  # noqa: F401 — import all models so they are registered with SQLAlchemy metadata
+from backend.api.v1.router import router as api_v1_router
+from backend.core.config import settings
+from backend.core.database import Base, engine
+from backend.models import agent, citation, comment, paper, user  # noqa: F401 — import all models so they are registered with SQLAlchemy metadata
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup — create tables if they do not exist yet (migrations handle production)
-    async with engine.begin() as conn:
-        from core.database import Base
-
-        await conn.run_sync(Base.metadata.create_all)
+    # Startup — create tables only in development (migrations handle production)
+    if settings.ENVIRONMENT == "development":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     yield
     # Shutdown
     await engine.dispose()

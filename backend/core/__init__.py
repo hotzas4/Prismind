@@ -1,1 +1,1 @@
-from core.database import Base  # noqa: F401
+from backend.core.database import Base  # noqa: F401

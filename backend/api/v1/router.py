@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from api.v1.endpoints import agents, citations, comments, papers, search, users
+from backend.api.v1.endpoints import agents, citations, comments, papers, search, users
 
 router = APIRouter()
 

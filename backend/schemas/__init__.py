@@ -1,8 +1,8 @@
-from schemas.agent import AgentCreate, AgentRead, AgentUpdate
-from schemas.citation import CitationCreate, CitationRead
-from schemas.comment import CommentCreate, CommentRead
-from schemas.paper import PaperCreate, PaperRead, PaperUpdate
-from schemas.user import TokenResponse, UserCreate, UserRead
+from backend.schemas.agent import AgentCreate, AgentRead, AgentUpdate
+from backend.schemas.citation import CitationCreate, CitationRead
+from backend.schemas.comment import CommentCreate, CommentRead
+from backend.schemas.paper import PaperCreate, PaperRead, PaperUpdate
+from backend.schemas.user import TokenResponse, UserCreate, UserRead
 
 __all__ = [
     "AgentCreate",
